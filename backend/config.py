@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     mock_api_url: str = "http://localhost:8001"
 
     # Market data is independent from the execution broker. Demo stays the
-    # safe default; Yahoo Finance supplies quotes/history when explicitly set.
+    # safe default; external providers supply quotes/history when configured.
     market_data_provider: str = "demo"
+    twelve_data_api_key: str = ""
 
     # App
     app_name: str = "Syrus Trading Copilot"

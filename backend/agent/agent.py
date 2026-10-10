@@ -11,6 +11,7 @@ from google.genai import types
 
 from config import settings
 from services.instruments import canonical_symbol
+from services.stock_data_service import get_stock_provider
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ CORE PRINCIPLES:
 5. Always confirm the symbol exists in the instrument master before creating a draft.
 6. Format numbers as Indian currency where relevant (₹ with lakh notation for large numbers).
 
-Use only data returned by the configured broker/data service. Describe mock quotes as fixed demo data, not live market data. Never describe mock values as live. Risk-budget changes must be proposed with the risk-limit tool, clearly state current and proposed values, and wait for explicit approval before claiming the limit changed. For a daily or narrative trading report, call get_daily_trade_report and base every count and amount on its output. Do not estimate or invent realized P&L when it is unavailable."""
+Use only data returned by the configured quote provider. Identify that provider and do not call quotes live unless its feed confirms that timing. Describe mock quotes as fixed demo data, not live market data. Never describe mock values as live. Market data may use an external provider while portfolio and order execution remain on the local mock broker. Risk-budget changes must be proposed with the risk-limit tool, clearly state current and proposed values, and wait for explicit approval before claiming the limit changed. For a daily or narrative trading report, call get_daily_trade_report and base every count and amount on its output. Do not estimate or invent realized P&L when it is unavailable."""
 
 TOOL_DECLARATIONS = [
     {"name": "get_quote", "description": "Get a quote from the configured broker data service. In mock mode, quote values are simulated. Supported symbols: RELIANCE.NS, INFY.NS, TCS.NS, HDFCBANK.NS, WIPRO.NS, SBIN.NS.", "parameters": {"type": "OBJECT", "properties": {"symbol": {"type": "STRING", "description": "Supported NSE stock symbol"}}, "required": ["symbol"]}},
@@ -53,13 +54,38 @@ class TradingAgent:
             tools=[types.Tool(function_declarations=declarations)],
         )
 
+    async def _get_market_quote(self, http: httpx.AsyncClient, symbol: str) -> dict:
+        """Read a quote from the selected feed, independently of execution."""
+        provider_name = settings.market_data_provider.lower()
+        if provider_name == "demo":
+            response = await http.get(f"{self.broker_url}/quote/{symbol}")
+            response.raise_for_status()
+            quote = response.json()
+            quote.setdefault("provider", "fixed_demo_fallback")
+            quote["mode"] = "demo"
+            return quote
+        if provider_name == "yahoo":
+            provider = get_stock_provider("yahoo")
+        elif provider_name in {"twelve_data", "twelvedata", "twelve-data"}:
+            if not settings.twelve_data_api_key:
+                raise ValueError("TWELVE_DATA_API_KEY is required when MARKET_DATA_PROVIDER=twelve_data.")
+            provider = get_stock_provider("twelve_data", api_key=settings.twelve_data_api_key)
+        else:
+            raise ValueError("Unsupported market data provider configuration.")
+        quote = await provider.get_quote(symbol)
+        price = float(quote.get("ltp") or 0)
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError(f"No valid quote is available for {symbol}.")
+        quote["mode"] = "external_market_data"
+        return quote
+
     async def _call_tool(self, tool_name: str, tool_input: dict) -> str:
         """Execute a broker tool and return its result as JSON."""
         async with httpx.AsyncClient(timeout=10.0) as http:
             try:
                 if tool_name == "get_quote":
                     symbol = canonical_symbol(str(tool_input.get("symbol", "")))
-                    r = await http.get(f"{self.broker_url}/quote/{symbol}")
+                    return json.dumps(await self._get_market_quote(http, symbol))
                 elif tool_name == "get_portfolio":
                     r = await http.get(f"{self.broker_url}/account")
                 elif tool_name == "get_positions":
@@ -93,14 +119,14 @@ class TradingAgent:
                     tool_input.update({"symbol": symbol, "side": side, "order_type": order_type})
 
                     # Always attach a fresh quote before saving an order draft.
-                    quote_response = await http.get(f"{self.broker_url}/quote/{symbol}")
-                    quote_response.raise_for_status()
-                    quote = quote_response.json()
+                    quote = await self._get_market_quote(http, symbol)
                     quoted_price = float(quote.get("ltp") or 0)
                     if quoted_price <= 0:
                         return json.dumps({"error": f"No valid quote is available for {symbol}; no draft was created."})
 
                     tool_input["quoted_price"] = quoted_price
+                    tool_input["quote_provider"] = quote.get("provider")
+                    tool_input["quote_mode"] = quote.get("mode", "demo")
                     return json.dumps({"draft": True, "data": tool_input, "tool": tool_name})
                 elif tool_name == "create_order_plan":
                     orders = tool_input.get("orders")
@@ -123,14 +149,14 @@ class TradingAgent:
                             return json.dumps({"error": f"{symbol} LIMIT order requires a positive price."})
                         if order_type in {"SL", "SL-M"} and (not math.isfinite(trigger) or trigger <= 0):
                             return json.dumps({"error": f"{symbol} stop order requires a positive trigger price."})
-                        quote_response = await http.get(f"{self.broker_url}/quote/{symbol}")
-                        quote_response.raise_for_status()
-                        quoted = float(quote_response.json().get("ltp") or 0)
+                        quote_data = await self._get_market_quote(http, symbol)
+                        quoted = float(quote_data.get("ltp") or 0)
                         if not math.isfinite(quoted) or quoted <= 0:
                             return json.dumps({"error": f"No valid quote for {symbol}; no plan was created."})
                         validated.append({"symbol": symbol, "side": side, "order_type": order_type, "quantity": quantity,
                             "price": price if order_type == "LIMIT" else None,
-                            "trigger_price": trigger if order_type in {"SL", "SL-M"} else None, "quoted_price": quoted})
+                            "trigger_price": trigger if order_type in {"SL", "SL-M"} else None, "quoted_price": quoted,
+                            "quote_provider": quote_data.get("provider"), "quote_mode": quote_data.get("mode", "demo")})
                     return json.dumps({"draft": True, "data": {"orders": validated}, "tool": tool_name})
                 elif tool_name == "create_standing_instruction":
                     symbol = canonical_symbol(str(tool_input.get("symbol", "")))

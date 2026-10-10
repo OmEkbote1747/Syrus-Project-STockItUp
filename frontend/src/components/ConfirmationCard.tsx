@@ -13,6 +13,8 @@ interface ConfirmationCardProps {
     price?: number
     trigger_price?: number
     quoted_price?: number
+    quote_provider?: string
+    quote_mode?: string
     risk_score?: number
     risk_check_passed?: boolean
     risk_reason?: string
@@ -126,6 +128,7 @@ export default function ConfirmationCard({ draft, onApproved, onRejected }: Conf
     ? quotedPrice
     : null
   const hasValidQuote = quoteValue !== null
+  const quoteSource = draft.quote_provider === 'twelve_data' ? 'Twelve Data' : draft.quote_provider === 'yahoo_finance' ? 'Yahoo Finance' : 'Demo feed'
   const orderValue = quoteValue === null ? null : draft.quantity * quoteValue
   const riskScore = draft.risk_score ?? 80
   const riskPassed = draft.risk_check_passed !== false
@@ -191,6 +194,7 @@ export default function ConfirmationCard({ draft, onApproved, onRejected }: Conf
         <div>
           <span className="muted-text text-xs">Quoted at</span>
           <p className="font-mono font-bold mt-0.5">{quoteValue !== null ? `₹${quoteValue.toFixed(2)}` : 'Unavailable'}</p>
+          <small className="muted-text">{quoteSource}{draft.quote_mode === 'external_market_data' ? ' · may be delayed' : ' · simulated'}</small>
         </div>
         <div>
           <span className="muted-text text-xs">Est. Value</span>

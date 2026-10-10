@@ -36,6 +36,8 @@ async def init_db():
             approved_at TIMESTAMPTZ, completed_at TIMESTAMPTZ
         )"""))
         await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS plan_id UUID REFERENCES order_plans(id)"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_provider VARCHAR(32)"))
+        await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_mode VARCHAR(32)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_orders_plan_id ON orders(plan_id)"))
 
 

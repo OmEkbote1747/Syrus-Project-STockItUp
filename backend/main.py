@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from config import settings
 from db import AsyncSessionLocal, init_db
-from services.price_poller import PricePoller
+from services.price_poller import PricePoller, quote_poll_interval
 from services.standing_instructions import StandingInstructionRunner
 from services.stock_data_service import get_stock_provider
 
@@ -102,12 +102,18 @@ async def market_history(symbol: str, days: int = Query(default=30, ge=1, le=365
     if provider_symbol not in {"^NSEI", "^BSESN"} and "." not in provider_symbol:
         provider_symbol += ".NS"
 
-    if settings.market_data_provider.lower() == "yahoo":
+    provider_name = settings.market_data_provider.lower()
+    if provider_name in {"yahoo", "twelve_data", "twelvedata", "twelve-data"}:
+        if provider_name != "yahoo" and not settings.twelve_data_api_key:
+            raise HTTPException(status_code=503, detail="TWELVE_DATA_API_KEY is required for Twelve Data.")
         try:
-            provider = get_stock_provider("yahoo")
+            provider = get_stock_provider(
+                "yahoo" if provider_name == "yahoo" else "twelve_data",
+                **({} if provider_name == "yahoo" else {"api_key": settings.twelve_data_api_key}),
+            )
             points = await provider.get_historical_data(provider_symbol, days=days)
             points = [{"time": item["date"], "price": item["close"]} for item in points if item.get("close")]
-            return {"symbol": provider_symbol, "provider": "yahoo_finance", "mode": "external_market_data", "points": points}
+            return {"symbol": provider_symbol, "provider": "yahoo_finance" if provider_name == "yahoo" else "twelve_data", "mode": "external_market_data", "points": points}
         except Exception as error:
             raise HTTPException(status_code=502, detail="Market history is unavailable from the configured provider.") from error
 
@@ -162,7 +168,8 @@ async def readiness():
         try:
             updated_at = datetime.fromisoformat(snapshot["updated_at"].replace("Z", "+00:00"))
             age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
-            if 0 <= age_seconds <= 180 and snapshot.get("prices"):
+            freshness_window = max(180, quote_poll_interval(settings.market_data_provider) + 120)
+            if 0 <= age_seconds <= freshness_window and snapshot.get("prices"):
                 checks["market_data"] = "ok"
         except (TypeError, ValueError):
             pass

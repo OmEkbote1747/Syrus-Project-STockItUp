@@ -103,8 +103,10 @@ For a trade or rule, inspect the generated proposal and approve or reject it in 
 - `GEMINI_API_KEY` is required for Gemini requests.
 - `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite` and can be changed in `.env.local`.
 - `APPROVAL_TOKEN_SECRET` must be a private, randomly generated value of at least 32 characters.
-- Orders and prices use the local mock broker. The 021 API is **not** configured as a live execution path; setting `USE_REAL_API=true` does not enable live trading.
-- Demo quotes and account balances are sample data, not live market information.
+- `MARKET_DATA_PROVIDER` defaults to `demo`. Set it to `yahoo` for Yahoo Finance, or `twelve_data` and set `TWELVE_DATA_API_KEY` in `.env.local` for Twelve Data. Restart/recreate the backend after changing it.
+- External provider quotes and price history are independent from order execution. Provider delays, exchange coverage, and API limits vary. The curated watchlist is limited to configured symbols and selected indices.
+- Portfolio balances, holdings, order approvals, and simulated fills continue to use the local mock broker. The 021 API is **not** configured as a live execution path; setting `USE_REAL_API=true` does not enable live trading.
+- Demo quotes and account balances are sample data, not live market information. External quotes do not guarantee real-time market data.
 - If a broker request times out after submission, its outcome may be unknown. Reconcile it before retrying to avoid duplicate orders.
 - Multi-leg mock orders report each leg's status. If a later leg fails after an earlier leg fills, the earlier fill cannot be rolled back.
 - The demo does not keep a realized profit/loss ledger, so realized P&L and a maximum daily loss control are not available.

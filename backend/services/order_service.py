@@ -54,11 +54,13 @@ class OrderService:
                 INSERT INTO orders (
                     id, client_order_id, symbol, side, order_type,
                     quantity, price, trigger_price, quoted_price,
+                    quote_provider, quote_mode,
                     status, risk_score, injection_flagged, risk_check_passed,
                     raw_user_message, plan_id
                 ) VALUES (
                     :id, :coid, :symbol, :side, :order_type,
                     :qty, :price, :trigger_price, :quoted_price,
+                    :quote_provider, :quote_mode,
                     'DRAFT', :risk_score, FALSE, :risk_passed,
                     :raw_msg, :plan_id
                 )
@@ -73,6 +75,8 @@ class OrderService:
                 "price":        draft_data.get("price"),
                 "trigger_price":draft_data.get("trigger_price"),
                 "quoted_price": quoted_price,
+                "quote_provider": draft_data.get("quote_provider"),
+                "quote_mode": draft_data.get("quote_mode"),
                 "risk_score":   draft_data.get("risk_score", 80),
                 "risk_passed":  draft_data.get("risk_check_passed", True),
                 "raw_msg":      raw_message,

@@ -204,46 +204,86 @@ class TwelveDataProvider(StockDataProvider):
         self.api_key = api_key
         self.base_url = "https://api.twelvedata.com"
 
+    @staticmethod
+    def _provider_symbol(symbol: str) -> str:
+        normalized = symbol.strip().upper()
+        if normalized.endswith(".NS"):
+            return f"{normalized[:-3]}:NSE"
+        if normalized.endswith(".BO"):
+            return f"{normalized[:-3]}:BSE"
+        return normalized
+
+    async def _get(self, endpoint: str, **params) -> Dict:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/{endpoint}",
+                    params={**params, "apikey": self.api_key},
+                )
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as error:
+            raise ValueError(f"Twelve Data request failed (HTTP {error.response.status_code}).") from None
+        except httpx.RequestError:
+            raise ValueError("Twelve Data could not be reached. Check network access and provider availability.") from None
+        if not isinstance(data, dict) or data.get("status") == "error" or data.get("code"):
+            message = data.get("message", "The provider returned an invalid response.") if isinstance(data, dict) else "The provider returned an invalid response."
+            raise ValueError(f"Twelve Data: {message}")
+        return data
+
     async def get_quote(self, symbol: str) -> Dict:
         """Get real-time quote from Twelve Data."""
-        async with httpx.AsyncClient() as client:
-            params = {
-                "symbol": symbol,
-                "apikey": self.api_key
-            }
-            response = await client.get(f"{self.base_url}/quote", params=params)
-            data = response.json()
+        data = await self._get("quote", symbol=self._provider_symbol(symbol))
+        return {
+            "symbol": symbol,
+            "ltp": float(data.get("close") or 0),
+            "open": float(data.get("open") or 0),
+            "high": float(data.get("high") or 0),
+            "low": float(data.get("low") or 0),
+            "prev_close": float(data.get("previous_close") or 0),
+            "volume": int(float(data.get("volume") or 0)),
+            "timestamp": data.get("datetime"),
+            "provider": "twelve_data",
+        }
 
-            return {
-                "symbol": symbol,
-                "ltp": float(data.get("close", 0)),
-                "open": float(data.get("open", 0)),
-                "high": float(data.get("high", 0)),
-                "low": float(data.get("low", 0)),
-                "prev_close": float(data.get("previous_close", 0)),
-                "volume": int(data.get("volume", 0)),
-                "timestamp": data.get("datetime"),
-                "provider": "twelve_data"
-            }
+    async def get_historical_data(self, symbol: str, days: int = 30) -> List[Dict]:
+        """Fetch real daily bars for chart ranges up to one year."""
+        interval = "5min" if days <= 1 else "15min" if days <= 7 else "1day"
+        outputsize = min(5000, max(2, days * (78 if interval == "5min" else 26 if interval == "15min" else 1)))
+        data = await self._get(
+            "time_series",
+            symbol=self._provider_symbol(symbol),
+            interval=interval,
+            outputsize=outputsize,
+            order="asc",
+        )
+        points = []
+        for item in data.get("values", []):
+            try:
+                points.append({
+                    "date": item["datetime"],
+                    "open": float(item["open"]),
+                    "high": float(item["high"]),
+                    "low": float(item["low"]),
+                    "close": float(item["close"]),
+                    "volume": int(float(item.get("volume") or 0)),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
+        return points
 
     async def search_symbol(self, query: str) -> List[Dict]:
         """Search for symbols."""
-        async with httpx.AsyncClient() as client:
-            params = {
-                "symbol": query,
-                "apikey": self.api_key
-            }
-            response = await client.get(f"{self.base_url}/symbol_search", params=params)
-            data = response.json()
-
-            results = []
-            for item in data.get("data", [])[:10]:
-                results.append({
-                    "symbol": item.get("symbol"),
-                    "name": item.get("instrument_name"),
-                    "exchange": item.get("exchange")
-                })
-            return results
+        data = await self._get("symbol_search", symbol=query)
+        results = []
+        for item in data.get("data", [])[:10]:
+            symbol = item.get("symbol", "")
+            exchange = item.get("exchange", "")
+            if exchange.upper() in {"NSE", "BSE", "XNSE", "XBOM"}:
+                suffix = ".NS" if exchange.upper() in {"NSE", "XNSE"} else ".BO"
+                symbol = symbol.replace(":NSE", "").replace(":BSE", "") + suffix
+                results.append({"symbol": symbol, "name": item.get("instrument_name"), "exchange": exchange})
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +374,7 @@ def get_stock_provider(provider_type: str = "yahoo", **kwargs) -> StockDataProvi
             raise ValueError("Alpha Vantage requires api_key")
         return AlphaVantageProvider(api_key)
 
-    elif provider_type == "twelve_data":
+    elif provider_type in {"twelve_data", "twelvedata", "twelve-data"}:
         api_key = kwargs.get("api_key")
         if not api_key:
             raise ValueError("Twelve Data requires api_key")

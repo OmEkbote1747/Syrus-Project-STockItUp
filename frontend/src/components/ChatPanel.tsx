@@ -30,6 +30,8 @@ interface DraftData {
   price?: number
   trigger_price?: number
   quoted_price?: number
+  quote_provider?: string
+  quote_mode?: string
   risk_score?: number
   risk_check_passed?: boolean
   risk_reason?: string

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-type PlanLeg = { order_id: string; symbol: string; side: 'BUY' | 'SELL'; order_type: string; quantity: number; quoted_price: number; risk_score?: number }
+type PlanLeg = { order_id: string; symbol: string; side: 'BUY' | 'SELL'; order_type: string; quantity: number; quoted_price: number; quote_provider?: string; quote_mode?: string; risk_score?: number }
 export type OrderPlan = { plan_id: string; orders: PlanLeg[] }
 
 export default function OrderPlanCard({ plan, onFinished }: { plan: OrderPlan; onFinished: (message: string) => void }) {
@@ -29,7 +29,7 @@ export default function OrderPlanCard({ plan, onFinished }: { plan: OrderPlan; o
     <div className="flex justify-between items-center mb-3"><strong className="accent-text">ORDER PLAN · {plan.orders.length} ORDERS</strong>{status && <span className="text-xs muted-text">{status}</span>}</div>
     <div className="space-y-2">{plan.orders.map((leg) => <div key={leg.order_id} className="flex justify-between gap-3 rounded-lg px-3 py-2 text-sm" style={{ background: 'var(--surface-2)' }}>
       <span><b>{leg.side} {leg.symbol}</b><span className="block muted-text">{leg.quantity} shares · {leg.order_type}</span></span>
-      <span className="text-right">₹{Number(leg.quoted_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}<span className="block muted-text">estimate ₹{(leg.quantity * leg.quoted_price).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span></span>
+      <span className="text-right">₹{Number(leg.quoted_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}<span className="block muted-text">estimate ₹{(leg.quantity * leg.quoted_price).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span><small className="block muted-text">{leg.quote_provider === 'twelve_data' ? 'Twelve Data' : leg.quote_provider === 'yahoo_finance' ? 'Yahoo Finance' : 'Demo quote'}{leg.quote_mode === 'external_market_data' ? ' · may be delayed' : ''}</small></span>
     </div>)}</div>
     <p className="text-xs muted-text mt-3">One approval submits the complete plan after all quotes and risk checks pass. Broker fills cannot be rolled back if a later leg fails.</p>
     {error && <p className="text-sm mt-2" style={{ color: 'var(--danger)' }}>{error}</p>}

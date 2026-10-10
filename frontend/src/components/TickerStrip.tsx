@@ -2,12 +2,13 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
 
-type Props = { onSearch?: (symbol: string) => void }
-export default function TickerStrip({ onSearch }: Props) {
+type Props = { onSearch?: (symbol: string) => void; onProviderChange?: (label: string) => void }
+export default function TickerStrip({ onSearch, onProviderChange }: Props) {
   const [prices, setPrices] = useState<Record<string, number>>({})
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [provider, setProvider] = useState('')
+  useEffect(() => { onProviderChange?.(loading ? 'Connecting to feed' : provider === 'yahoo_finance' ? 'Yahoo Finance feed' : provider === 'twelve_data' ? 'Twelve Data feed' : provider ? 'Demo feed' : 'Quote feed unavailable') }, [loading, provider, onProviderChange])
   useEffect(() => {
     let alive = true
     const fetchSnapshot = async () => {
@@ -28,9 +29,9 @@ export default function TickerStrip({ onSearch }: Props) {
     { symbol: 'SENSEX', value: prices.SENSEX ?? prices['^BSESN'] },
   ]
   return <section className="ticker-strip" aria-label="Market ticker">
-    <div className="ticker-indices">{indices.map(index => <div className="ticker-index" key={index.symbol}><span>{index.symbol}</span><b>{typeof index.value === 'number' ? index.value.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}</b></div>)}<div className="ticker-market"><i/><span>{loading ? 'Connecting to quote feed' : Object.keys(prices).length ? provider === 'yahoo_finance' ? 'External quote feed' : 'Demo market feed' : 'Quote feed unavailable'}</span></div></div>
+    <div className="ticker-indices">{indices.map(index => <div className="ticker-index" key={index.symbol}><span>{index.symbol}</span><b>{typeof index.value === 'number' ? index.value.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}</b></div>)}<div className="ticker-market"><i/><span>{loading ? 'Connecting to quote feed' : Object.keys(prices).length ? provider === 'yahoo_finance' ? 'Yahoo Finance feed' : provider === 'twelve_data' ? 'Twelve Data feed' : 'Demo market feed' : 'Quote feed unavailable'}</span></div></div>
     <div className="ticker-stocks">{Object.entries(prices).slice(0, 5).map(([symbol,value]) => <div className="ticker-stock" key={symbol}><span>{symbol.replace('.NS','')}</span><b>₹{Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>)}{!loading && Object.keys(prices).length === 0 && <span className="ticker-empty">Waiting for quote data</span>}</div>
     <form className="ticker-search" onSubmit={submit}><Search size={14}/><input aria-label="Search stock symbol" placeholder="Search symbol" value={search} onChange={event => setSearch(event.target.value)}/></form>
-    <span className="ticker-disclosure">{provider === 'yahoo_finance' ? 'YAHOO FINANCE · MAY BE DELAYED' : 'DEMO QUOTES'}</span>
+    <span className="ticker-disclosure">{provider === 'yahoo_finance' ? 'YAHOO FINANCE · MAY BE DELAYED' : provider === 'twelve_data' ? 'TWELVE DATA · PLAN DEPENDENT' : 'DEMO QUOTES'}</span>
   </section>
 }
